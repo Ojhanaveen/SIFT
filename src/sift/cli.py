@@ -11,7 +11,7 @@ from typing import List, Optional
 from . import store
 from .adapters.pytest_adapter import PytestAdapter
 from .config import doctests_enabled
-from .gitdiff import GitError, collect, head, is_dirty
+from .gitdiff import GitError, collect, head, is_dirty, is_shallow
 from .model import Selection
 from .select import select
 
@@ -31,6 +31,23 @@ def _adapter(root: Path, extra: List[str]) -> PytestAdapter:
 def _fmt_secs(s: float) -> str:
     m, sec = divmod(int(s), 60)
     return f"{m}m {sec:02d}s" if m else f"{sec}s"
+
+
+def _warn_if_shallow(root: Path) -> None:
+    """A shallow clone defeats the ancestor walk without failing anything.
+
+    This is the default state of a CI checkout, so it is the most likely reason
+    for "sift is cached but still runs everything". Say it loudly -- a silent
+    green build that never selects anything is worse than an error.
+    """
+    if not is_shallow(str(root)):
+        return
+    print(f"{YELLOW}⚠  shallow clone: history is truncated, so sift cannot walk "
+          f"back to a stored map.{RESET}")
+    print(f"   {DIM}Every run will fall back to the full suite. In GitHub "
+          f"Actions set:{RESET}")
+    print(f"   {DIM}  - uses: actions/checkout@v4{RESET}")
+    print(f"   {DIM}    with: {{ fetch-depth: 0 }}{RESET}")
 
 
 def _print_selection(sel: Selection, total: Optional[int]) -> None:
@@ -59,6 +76,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     root = _root()
     adapter = _adapter(root, args.pytest_args)
     sha = head(str(root))
+    _warn_if_shallow(root)
 
     if args.all:
         print(f"{DIM}building map at {sha[:8]}…{RESET}")
@@ -130,9 +148,17 @@ def _shadow(adapter: PytestAdapter, sel: Selection, total: int) -> int:
 
 def cmd_status(args: argparse.Namespace) -> int:
     root = _root()
+    _warn_if_shallow(root)
     tmap, distance = store.find_nearest(root)
     if tmap is None:
-        print("no map stored — run `sift run --all`")
+        held = store.stored_commits(root)
+        if held:
+            # Maps on disk but none reachable: almost always a shallow clone or
+            # a rebased branch. Distinguish it from having no cache at all.
+            print(f"{len(held)} map(s) stored, but none is an ancestor of HEAD "
+                  f"— run `sift run --all`")
+        else:
+            print("no map stored — run `sift run --all`")
         return 1
     changes = collect(tmap.commit, cwd=str(root))
     print(f"{BOLD}sift status{RESET}")
@@ -141,6 +167,8 @@ def cmd_status(args: argparse.Namespace) -> int:
     print(f"  tests mapped: {len(tmap.tests)}")
     print(f"  files mapped: {len(tmap.lines)}")
     print(f"  changed since:{len(changes.all_paths)} file(s)")
+    print(f"  maps on disk: {len(store.stored_commits(root))} "
+          f"(keeping {store.KEEP_MAPS})")
     if distance > 50:
         print(f"  {YELLOW}map is getting stale; consider `sift run --all`{RESET}")
     return 0

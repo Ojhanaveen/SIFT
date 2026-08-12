@@ -1,0 +1,83 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # The gate. Plain pytest, nothing clever, across supported versions.
+  # sift never decides whether this repo's own PRs can merge.
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.9", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: pip install -e ".[dev]"
+      - run: pytest -q
+
+  # Dogfooding: run sift on sift, with the map carried between runs by the
+  # Actions cache. Shadow mode runs the FULL suite and only reports what it
+  # would have skipped, so this job can never hide a failure from us.
+  sift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Required. The default fetch-depth of 1 truncates history, the
+          # ancestor walk can then never reach the restored map, and sift
+          # quietly runs everything on every build while looking healthy.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - run: pip install -e ".[dev]"
+
+      # Restore only. Branch fallback is not something we key for by hand:
+      # Actions already scopes caches so a PR run reads its base branch's
+      # caches, so a single prefix restore-key gets a PR the newest map from
+      # main. Putting the branch in the key would actively break that.
+      - name: Restore test map
+        id: map
+        uses: actions/cache/restore@v4
+        with:
+          path: .sift/maps
+          key: sift-map-v1-${{ runner.os }}-${{ github.sha }}
+          restore-keys: |
+            sift-map-v1-${{ runner.os }}-
+
+      - name: Map freshness
+        run: sift status || true
+
+      # On main, rebuild the map at this exact commit so PRs branching from
+      # here start with a zero-distance map. On a PR, use whatever the cache
+      # gave us and report the counterfactual.
+      - name: Rebuild map (main)
+        if: github.ref == 'refs/heads/main'
+        run: sift run --all
+
+      - name: Shadow run (pull request)
+        if: github.ref != 'refs/heads/main'
+        run: sift run --shadow
+
+      # Save only on main. A cache written from a PR is scoped to that PR,
+      # is unreadable by anything else, and is evicted when it closes -- it
+      # would only burn quota and evict maps that are actually used.
+      - name: Save test map
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@v4
+        with:
+          path: .sift/maps
+          key: sift-map-v1-${{ runner.os }}-${{ github.sha }}
