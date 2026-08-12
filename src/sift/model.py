@@ -96,6 +96,8 @@ class Selection:
     reasons: List[str] = field(default_factory=list)
     # test id -> why it was picked, for `sift explain`
     why: Dict[TestId, List[str]] = field(default_factory=dict)
+    # paths dropped as provably unable to affect any test
+    ignored: List[str] = field(default_factory=list)
 
     def add(self, test: TestId, reason: str) -> None:
         self.why.setdefault(test, [])
