@@ -90,7 +90,15 @@ def cmd_run(args: argparse.Namespace) -> int:
 
     tmap, distance = store.find_nearest(root)
     if tmap is None:
-        print(f"{YELLOW}▸ no map found — run `sift run --all` first{RESET}")
+        print(f"{YELLOW}▸ no map found — running everything{RESET}")
+        if args.shadow:
+            # Without a map there is no counterfactual to report, so shadow
+            # mode degrades to a plain full run. Say so: a silent degrade looks
+            # exactly like a shadow report of zero savings, and the fix (build
+            # a map first) is not guessable from the output.
+            print(f"  {DIM}shadow mode has nothing to compare against until a "
+                  f"map exists{RESET}")
+        print(f"  {DIM}build one with `sift run --all`{RESET}")
         return adapter.run(None)
 
     if is_dirty(str(root)):
