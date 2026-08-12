@@ -11,6 +11,7 @@ import argparse
 import pytest
 
 from sift import cli
+from sift.model import Selection
 
 
 class StubAdapter:
@@ -66,3 +67,47 @@ def test_shadow_without_a_map_says_it_cannot_compare(no_map, capsys):
 def test_plain_run_does_not_mention_shadow(no_map, capsys):
     run_cmd()
     assert "compare against" not in capsys.readouterr().out
+
+
+# -- the shadow report must explain a forced full run ----------------------
+
+
+class RecordingAdapter(StubAdapter):
+    def run_capture(self, tests):
+        self.ran_with = tests
+        return 0, []
+
+
+def test_shadow_report_gives_the_reason_for_a_full_run(capsys):
+    """"Ran 44/44, skipped 0" with no reason is indistinguishable from "sift
+    analysed your diff and found nothing skippable". A team reading that for
+    two weeks concludes the tool does nothing, when a safety rule fired."""
+    sel = Selection(tests=[], run_all=True,
+                    reasons=["conftest.py can affect any test (always-run rule)"])
+    cli._shadow(RecordingAdapter(), sel, total=44)
+
+    out = capsys.readouterr().out
+    assert "Would have skipped: 0" in out
+    assert "safety rule forced a full run" in out
+    assert "conftest.py can affect any test" in out
+
+
+def test_shadow_report_truncates_a_long_reason_list(capsys):
+    sel = Selection(tests=[], run_all=True,
+                    reasons=[f"reason {i}" for i in range(9)])
+    cli._shadow(RecordingAdapter(), sel, total=44)
+
+    out = capsys.readouterr().out
+    assert "reason 4" in out
+    assert "reason 5" not in out
+    assert "+4 more" in out
+
+
+def test_shadow_report_stays_quiet_when_selection_was_real(capsys):
+    """A genuine narrow selection must not be dressed up as a safety trip."""
+    sel = Selection(tests=["t::a", "t::b"], run_all=False)
+    cli._shadow(RecordingAdapter(), sel, total=44)
+
+    out = capsys.readouterr().out
+    assert "safety rule" not in out
+    assert "Would have skipped: 42" in out
