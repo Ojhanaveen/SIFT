@@ -7,7 +7,13 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # Supersede stale PR runs, but never cancel a run on main. A main run exists
+  # to build and save the map; killing it midway can drop the cache write, so
+  # the next PR restores an older map, diffs across a wider range, and gets a
+  # needlessly full run. Two main runs were cancelled this way before this
+  # line existed -- one saved its cache only because the sift job happened to
+  # finish first.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   # The gate. Plain pytest, nothing clever, across supported versions.
