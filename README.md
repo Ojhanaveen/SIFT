@@ -83,6 +83,56 @@ tests/test_cart.py::test_subtotal is selected because:
   · covers app/math_ops.py:10
 ```
 
+## Use it in CI
+
+This is what sift is for. The map lives in `.sift/maps/` and is never
+committed — it would conflict on every merge — so CI has to carry it between
+runs in the runner's cache.
+
+```yaml
+- uses: actions/checkout@v4
+  with:
+    fetch-depth: 0          # required — see below
+
+- uses: actions/cache/restore@v4
+  with:
+    path: .sift/maps
+    key: sift-map-v1-${{ runner.os }}-${{ github.sha }}
+    restore-keys: |
+      sift-map-v1-${{ runner.os }}-
+
+- run: sift run --shadow    # or `sift run` once you trust it
+
+- uses: actions/cache/save@v4
+  if: github.ref == 'refs/heads/main'
+  with:
+    path: .sift/maps
+    key: sift-map-v1-${{ runner.os }}-${{ github.sha }}
+```
+
+Three things about that recipe are load-bearing:
+
+**`fetch-depth: 0` is not optional.** The default checkout is shallow, so
+`git log` stops after one commit and sift can never walk back to the commit its
+map was built at. It then fails open and runs your whole suite on every build,
+with a green tick and no complaint — you would just quietly get no benefit.
+sift now prints a warning when it detects a shallow clone, but the fix is here.
+
+**The commit SHA goes in the key; the branch does not.** Cache keys are
+immutable, so a key that doesn't change per commit would be written once and
+then never refresh. The `restore-keys` prefix falls back to the newest map from
+any earlier run. Branch scoping is already handled for you — Actions lets a PR
+read caches from its base branch — and putting the branch in the key would break
+that fallback rather than help it.
+
+**Save only on the default branch.** A cache written from a PR is scoped to that
+PR, can't be read by anything else, and is evicted when it closes. It only burns
+quota and pushes out maps that are actually being used.
+
+Build the map on your default branch with `sift run --all`; pull requests then
+restore it and diff against it. Older maps are pruned automatically, so the
+cache doesn't grow without bound.
+
 ## How it works
 
 1. `sift run --all` runs your suite under `coverage.py` dynamic contexts, which
@@ -110,7 +160,6 @@ lines and select confidently wrong tests.
   file — data, config, templates — fails open.
 - **Non-code dependencies are invisible.** If a test reads a fixture JSON file,
   changing that file won't select it. Keep such files under an always-run rule.
-- **No CI cache integration yet**, so the map doesn't persist between CI runs.
 - Insertions select the lines either side of the insertion point, which
   over-selects slightly. Deliberate.
 

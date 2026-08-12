@@ -49,6 +49,18 @@ def is_dirty(cwd: Optional[str] = None) -> bool:
     return bool(_git("status", "--porcelain", cwd=cwd).strip())
 
 
+def is_shallow(cwd: Optional[str] = None) -> bool:
+    """True if this clone has a truncated history.
+
+    Matters more than it looks. CI checkouts are shallow by default
+    (`actions/checkout` uses fetch-depth: 1), which leaves `rev-list HEAD`
+    returning a single commit. The nearest-ancestor walk then never matches a
+    restored map, sift fails open, and the build stays green while the cache
+    silently does nothing at all. Callers should say so out loud.
+    """
+    return _git("rev-parse", "--is-shallow-repository", cwd=cwd).strip() == "true"
+
+
 # Build artefacts and caches: derived from source we already track, so they
 # cannot independently affect a test outcome. Everything else that is
 # untracked is treated as a new file and fails open.
