@@ -31,6 +31,16 @@ caught a bug. So sift resolves every ambiguity by **running more tests**:
 
 It is designed to be boringly conservative. Speed is what's left over.
 
+The one exception is files that provably cannot affect a test: documentation,
+images, and repo furniture like `LICENSE` and `.gitignore`. Those are ignored,
+so a README edit doesn't cost you a full test run.
+
+Data files are **not** on that list — tests read `.json`, `.yaml`, `.csv` and
+`.txt` as fixtures all the time, so those still fail open. And if your project
+runs doctests (`--doctest-modules` / `--doctest-glob`), sift detects it and
+stops treating documentation as safe, because then your markdown really is
+executable code.
+
 ## Try it without risk
 
 Shadow mode runs your **full** suite, skipping nothing, and reports what it
@@ -95,8 +105,9 @@ lines and select confidently wrong tests.
 
 - **Python/pytest only.** The adapter boundary exists so other languages can be
   added — see [CONTRIBUTING.md](CONTRIBUTING.md). JS/TS is the next target.
-- **Any non-Python file change triggers a full run.** That includes README edits.
-  Correct, but blunt; a benign-path allowlist is the top v1 issue.
+- **Most non-Python file changes still trigger a full run.** Documentation,
+  images and repo furniture are ignored (see below), but any other unrecognised
+  file — data, config, templates — fails open.
 - **Non-code dependencies are invisible.** If a test reads a fixture JSON file,
   changing that file won't select it. Keep such files under an always-run rule.
 - **No CI cache integration yet**, so the map doesn't persist between CI runs.

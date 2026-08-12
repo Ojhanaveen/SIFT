@@ -132,3 +132,71 @@ def test_explanations_are_recorded(tmap):
     sel = select(_changes({"app/math.py": [2]}), tmap)
     why = sel.why["tests/test_math.py::test_add"]
     assert any("app/math.py:2" in r for r in why)
+
+
+# -- benign path allowlist --------------------------------------------------
+#
+# Every test below narrows selection, so each one is a place a silent miss
+# could be introduced. Treat failures here as correctness bugs, not style.
+
+
+def test_markdown_alone_runs_nothing(tmap):
+    sel = select(_changes({"README.md": [1]}), tmap)
+    assert not sel.run_all
+    assert sel.tests == []
+    assert "README.md" in sel.ignored
+
+
+def test_docs_directory_is_benign(tmap):
+    sel = select(_changes({"docs/guide/intro.md": [4]}), tmap)
+    assert not sel.run_all
+    assert sel.tests == []
+
+
+def test_images_are_benign(tmap):
+    sel = select(_changes({"assets/logo.png": [1]}), tmap)
+    assert not sel.run_all
+    assert sel.tests == []
+
+
+def test_license_is_benign(tmap):
+    sel = select(_changes({"LICENSE": [1]}), tmap)
+    assert not sel.run_all
+    assert sel.tests == []
+
+
+def test_benign_file_does_not_mask_a_real_change(tmap):
+    """A docs edit alongside a code edit must not hide the code edit."""
+    sel = select(_changes({"README.md": [1], "app/math.py": [2]}), tmap)
+    assert not sel.run_all
+    assert sel.tests == ["tests/test_math.py::test_add"]
+
+
+def test_benign_file_does_not_mask_an_always_run_rule(tmap):
+    """Always-run rules are evaluated before filtering, so a benign path in
+    the same commit can never suppress them."""
+    sel = select(_changes({"README.md": [1], "requirements.txt": [2]}), tmap)
+    assert sel.run_all
+
+
+def test_doctests_make_markdown_dangerous(tmap):
+    """With --doctest-glob a markdown file IS executable code. When doctests
+    are on, docs stop being benign and we fall back to running everything."""
+    sel = select(_changes({"README.md": [1]}), tmap, ignore_docs=False)
+    assert sel.run_all
+
+
+def test_images_stay_benign_even_with_doctests(tmap):
+    """Doctests can execute markdown; they cannot execute a PNG."""
+    sel = select(_changes({"assets/logo.png": [1]}), tmap, ignore_docs=False)
+    assert not sel.run_all
+    assert sel.tests == []
+
+
+def test_data_files_are_not_benign(tmap):
+    """Fixture data is read by tests at runtime. These must keep failing open,
+    or we silently skip tests whose input changed."""
+    for path in ("tests/fixtures/data.json", "config.yaml", "seed.csv",
+                 "expected_output.txt"):
+        sel = select(_changes({path: [1]}), tmap)
+        assert sel.run_all, f"{path} must not be treated as benign"

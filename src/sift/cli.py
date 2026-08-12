@@ -10,6 +10,7 @@ from typing import List, Optional
 
 from . import store
 from .adapters.pytest_adapter import PytestAdapter
+from .config import doctests_enabled
 from .gitdiff import GitError, collect, head, is_dirty
 from .model import Selection
 from .select import select
@@ -33,6 +34,10 @@ def _fmt_secs(s: float) -> str:
 
 
 def _print_selection(sel: Selection, total: Optional[int]) -> None:
+    if sel.ignored:
+        shown = ", ".join(sel.ignored[:3])
+        more = f" +{len(sel.ignored) - 3} more" if len(sel.ignored) > 3 else ""
+        print(f"{DIM}ignored {len(sel.ignored)} non-code file(s): {shown}{more}{RESET}")
     if sel.run_all:
         print(f"{YELLOW}▸ running everything{RESET}")
         for r in sel.reasons[:5]:
@@ -74,7 +79,7 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"{DIM}(working tree has uncommitted changes; they are included){RESET}")
 
     changes = collect(tmap.commit, cwd=str(root))
-    sel = select(changes, tmap)
+    sel = select(changes, tmap, ignore_docs=not doctests_enabled(root))
     total = len(tmap.tests)
 
     print(f"{DIM}map from {tmap.commit[:8]} ({distance} commit(s) back), "
@@ -148,7 +153,7 @@ def cmd_explain(args: argparse.Namespace) -> int:
         print("no map stored — run `sift run --all`")
         return 1
     changes = collect(tmap.commit, cwd=str(root))
-    sel = select(changes, tmap)
+    sel = select(changes, tmap, ignore_docs=not doctests_enabled(root))
 
     target = args.test
     if sel.run_all:
