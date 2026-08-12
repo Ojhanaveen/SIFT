@@ -139,6 +139,17 @@ def _shadow(adapter: PytestAdapter, sel: Selection, total: int) -> int:
     print(f"\n{BOLD}Shadow report{RESET}")
     print(f"  Would have run:     {total if sel.run_all else len(selected)} / {total}")
     print(f"  Would have skipped: {would_skip}")
+    if sel.run_all:
+        # Without this, "ran everything, skipped nothing" reads as "sift looked
+        # at your diff and found nothing worth skipping" -- i.e. as the tool
+        # being useless -- when in fact a safety rule fired on purpose. Shadow
+        # mode is what a team stares at for two weeks before trusting sift, so
+        # the conservative choice has to be visible, not just correct.
+        print(f"  {YELLOW}▸ a safety rule forced a full run:{RESET}")
+        for r in sel.reasons[:5]:
+            print(f"      {DIM}· {r}{RESET}")
+        if len(sel.reasons) > 5:
+            print(f"      {DIM}· +{len(sel.reasons) - 5} more{RESET}")
     if total and not sel.run_all:
         saved = elapsed * (would_skip / total)
         print(f"  Full suite took:    {_fmt_secs(elapsed)}")
