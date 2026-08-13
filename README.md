@@ -12,9 +12,9 @@ Most teams run their whole test suite on every commit, because they have no way
 to know which tests matter. sift records which test touches which line of code,
 then uses your diff to run only the tests that could possibly break.
 
-> **Status: v0, early.** Python/pytest only. The selection logic is tested and
-> conservative, but you should run it in `--shadow` mode (below) before trusting
-> it to skip anything.
+> **Status: early.** Python (pytest) and JavaScript (Jest). The selection logic
+> is tested and conservative, but you should run it in `--shadow` mode (below)
+> before trusting it to skip anything.
 
 ---
 
@@ -153,8 +153,14 @@ lines and select confidently wrong tests.
 
 ## Known limitations (v0)
 
-- **Python/pytest only.** The adapter boundary exists so other languages can be
-  added — see [CONTRIBUTING.md](CONTRIBUTING.md). JS/TS is the next target.
+- **Python and JavaScript (pytest, Jest).** Vitest, Go, Ruby, Rust and Java are
+  open — see [CONTRIBUTING.md](CONTRIBUTING.md).
+- **JS selection is per spec file, not per test.** `coverage.py` labels every
+  line with the test that ran it; istanbul has no equivalent, so the Jest
+  adapter traces one spec file at a time and attributes coverage to the file.
+  Changing a line one test covers pulls in its whole spec. Coarser than Python,
+  and the safe direction — a per-test reporter hook can narrow it later without
+  changing the map format.
 - **Most non-Python file changes still trigger a full run.** Documentation,
   images and repo furniture are ignored (see below), but any other unrecognised
   file — data, config, templates — fails open.

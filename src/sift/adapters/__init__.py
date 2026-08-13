@@ -16,13 +16,14 @@ from pathlib import Path
 from typing import List, Optional, Sequence, Type
 
 from .base import Adapter, LanguageProfile
+from .jest_adapter import JestAdapter
 from .pytest_adapter import PytestAdapter
 
 # Order matters only for ties: the first adapter that detects wins.
-REGISTRY: List[Type] = [PytestAdapter]
+REGISTRY: List[Type] = [PytestAdapter, JestAdapter]
 
 __all__ = ["Adapter", "LanguageProfile", "REGISTRY", "detect", "profiles",
-           "PytestAdapter"]
+           "JestAdapter", "PytestAdapter"]
 
 
 def detect(root: Path, args: Optional[Sequence[str]] = None):
