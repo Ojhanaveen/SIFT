@@ -18,10 +18,35 @@ from pathlib import Path
 from typing import List, Optional, Sequence
 
 from ..model import CoverageMap, TestId
+from .base import LanguageProfile
+
+PYTHON = LanguageProfile(
+    source_extensions=(".py",),
+    test_file_patterns=("test_*.py", "*_test.py", "*/test_*.py", "*/*_test.py"),
+    always_run_patterns=(
+        # dependency graph changed
+        "requirements*.txt",
+        "*/requirements*.txt",
+        "poetry.lock",
+        "Pipfile.lock",
+        "pdm.lock",
+        "uv.lock",
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        # test harness config
+        "conftest.py",
+        "*/conftest.py",
+        "tox.ini",
+        "pytest.ini",
+        ".coveragerc",
+    ),
+)
 
 
 class PytestAdapter:
     name = "pytest"
+    profile = PYTHON
 
     def __init__(self, root: Path, args: Optional[Sequence[str]] = None):
         self.root = root

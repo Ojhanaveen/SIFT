@@ -8,8 +8,8 @@ import time
 from pathlib import Path
 from typing import List, Optional
 
-from . import store
-from .adapters.pytest_adapter import PytestAdapter
+from . import adapters, store
+from .adapters.base import Adapter
 from .config import doctests_enabled
 from .gitdiff import GitError, collect, head, is_dirty, is_shallow
 from .model import Selection
@@ -24,8 +24,9 @@ def _root() -> Path:
     return Path.cwd()
 
 
-def _adapter(root: Path, extra: List[str]) -> PytestAdapter:
-    return PytestAdapter(root, extra)
+def _adapter(root: Path, extra: List[str]) -> Optional[Adapter]:
+    """The registered adapter that recognises this repo, if any."""
+    return adapters.detect(root, extra)
 
 
 def _fmt_secs(s: float) -> str:
@@ -48,6 +49,22 @@ def _warn_if_shallow(root: Path) -> None:
           f"Actions set:{RESET}")
     print(f"   {DIM}  - uses: actions/checkout@v4{RESET}")
     print(f"   {DIM}    with: {{ fetch-depth: 0 }}{RESET}")
+
+
+def _no_adapter(root: Path) -> int:
+    """No registered adapter recognises this repo.
+
+    Refusing is right here: sift has no way to run the suite, so it cannot
+    fall open onto anything. Exiting non-zero rather than pretending success
+    keeps it honest in a pipeline.
+    """
+    known = ", ".join(cls.name for cls in adapters.REGISTRY)
+    print(f"{RED}no adapter recognised this repo{RESET}", file=sys.stderr)
+    print(f"  {DIM}looked in {root}{RESET}", file=sys.stderr)
+    print(f"  {DIM}registered adapters: {known}{RESET}", file=sys.stderr)
+    print(f"  {DIM}adding a language means one small class — "
+          f"see CONTRIBUTING.md{RESET}", file=sys.stderr)
+    return 2
 
 
 def _print_selection(sel: Selection, total: Optional[int]) -> None:
@@ -75,6 +92,8 @@ def _print_selection(sel: Selection, total: Optional[int]) -> None:
 def cmd_run(args: argparse.Namespace) -> int:
     root = _root()
     adapter = _adapter(root, args.pytest_args)
+    if adapter is None:
+        return _no_adapter(root)
     sha = head(str(root))
     _warn_if_shallow(root)
 
@@ -123,7 +142,7 @@ def cmd_run(args: argparse.Namespace) -> int:
     return adapter.run(sel.tests)
 
 
-def _shadow(adapter: PytestAdapter, sel: Selection, total: int) -> int:
+def _shadow(adapter: Adapter, sel: Selection, total: int) -> int:
     """Run everything; report what would have been skipped, and whether that
     would have hidden a real failure. This is how a team earns confidence
     before letting sift skip anything for real."""
