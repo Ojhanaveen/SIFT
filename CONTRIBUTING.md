@@ -86,7 +86,8 @@ else's language.
 | Language | Framework | Coverage source | Status |
 |---|---|---|---|
 | Python | pytest | `coverage.py` contexts | ✅ done |
-| JS/TS | Jest, Vitest | v8 / istanbul per-test | 🔴 open |
+| JS/TS | Jest | istanbul, per spec file | ✅ done |
+| JS/TS | Vitest | istanbul / v8 | 🔴 open |
 | Go | `go test` | `-coverprofile` per test | 🔴 open |
 | Ruby | RSpec | SimpleCov | 🔴 open |
 | Rust | `cargo test` | llvm-cov | 🔴 open |
