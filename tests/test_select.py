@@ -200,3 +200,45 @@ def test_data_files_are_not_benign(tmap):
                  "expected_output.txt"):
         sel = select(_changes({path: [1]}), tmap)
         assert sel.run_all, f"{path} must not be treated as benign"
+
+
+# -- benign paths under an always-run glob ---------------------------------
+#
+# Found by replaying real history: an "update project files" commit that
+# touched .github/ISSUE_TEMPLATE/bug-report.md ran all 297 tests. The benign
+# allowlist already named that path; always-run was evaluated first, so the
+# entry could never take effect.
+
+
+@pytest.mark.parametrize("path", [
+    ".github/ISSUE_TEMPLATE/bug-report.md",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/PULL_REQUEST_TEMPLATE.md",
+    ".github/FUNDING.yml",
+    ".github/CODEOWNERS",
+])
+def test_github_metadata_does_not_force_a_full_run(path, tmap):
+    sel = select(_changes({path: [1]}), tmap)
+    assert not sel.run_all, f"{path} cannot affect any test"
+
+
+@pytest.mark.parametrize("path", [
+    ".github/workflows/ci.yml",
+    ".github/workflows/publish.yaml",
+    ".github/actions/setup/action.yml",
+    ".github/dependabot.yml",
+])
+def test_real_github_config_still_forces_a_full_run(path, tmap):
+    """The exception list must stay narrow. Anything that can change how the
+    suite executes still runs everything."""
+    sel = select(_changes({path: [1]}), tmap)
+    assert sel.run_all
+
+
+def test_an_exception_path_does_not_mask_a_real_always_run_file(tmap):
+    """A commit touching both must still run everything."""
+    sel = select(_changes({
+        ".github/FUNDING.yml": [1],
+        ".github/workflows/ci.yml": [2],
+    }), tmap)
+    assert sel.run_all
