@@ -20,8 +20,19 @@ When in doubt: run more tests.
 Implement this. That's the whole contract:
 
 ```python
+from sift.adapters.base import LanguageProfile
+
 class MyAdapter:
     name = "jest"
+
+    # What the core needs to know about your ecosystem's files, so that it can
+    # classify a diff before any adapter runs. See "The profile" below.
+    profile = LanguageProfile(
+        source_extensions=(".js", ".jsx", ".ts", ".tsx"),
+        test_file_patterns=("*.test.js", "*.spec.ts", "__tests__/*"),
+        always_run_patterns=("package.json", "package-lock.json",
+                             "yarn.lock", "jest.config.*"),
+    )
 
     def detect(self) -> bool:
         """Does this repo use my framework?"""
@@ -39,7 +50,24 @@ class MyAdapter:
         """Same, but also return the ids that failed (shadow mode needs this)."""
 ```
 
-See `src/sift/adapters/pytest_adapter.py` for a worked example — it's ~140 lines.
+Then add it to `REGISTRY` in `src/sift/adapters/__init__.py`. That one line is
+what makes sift actually pick it up — without it your adapter is never asked.
+
+The contract lives in `src/sift/adapters/base.py`, and
+`tests/test_adapters.py` checks every registered adapter against it, so a
+half-finished class fails the suite rather than failing quietly at runtime.
+See `src/sift/adapters/pytest_adapter.py` for a worked example — ~150 lines.
+
+### The profile
+
+`detect()` only picks the *runner*. The profile is separate because selection
+has to classify paths before anything runs, and often for files no map covers.
+
+It is consulted for **every registered adapter**, not just the detected one.
+That is deliberate and safe: every field can only ever cause more tests to
+run. Declaring `package-lock.json` means a Python repo that grows one will
+fail open on it. Nothing you put in a profile can narrow selection in someone
+else's language.
 
 ### What makes a good adapter
 

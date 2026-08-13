@@ -10,28 +10,16 @@ from __future__ import annotations
 import fnmatch
 from typing import Iterable, List, Optional, Set, Tuple
 
+from . import adapters
 from .gitdiff import Changes
 from .model import Selection, CoverageMap
 
 # A change to any of these can affect anything, in ways coverage cannot see.
+# Only genuinely language-agnostic entries belong here -- the environment the
+# suite runs in. Ecosystem files (dependency manifests, lockfiles, runner
+# config) live on each adapter's LanguageProfile, so that adding a language
+# also teaches the core which of its files are foundational.
 ALWAYS_RUN_ALL = [
-    # dependency graph changed
-    "requirements*.txt",
-    "*/requirements*.txt",
-    "poetry.lock",
-    "Pipfile.lock",
-    "pdm.lock",
-    "uv.lock",
-    "pyproject.toml",
-    "setup.py",
-    "setup.cfg",
-    # test harness config
-    "conftest.py",
-    "*/conftest.py",
-    "tox.ini",
-    "pytest.ini",
-    ".coveragerc",
-    # environment
     "Dockerfile*",
     "docker-compose*.yml",
     ".github/**",
@@ -39,7 +27,26 @@ ALWAYS_RUN_ALL = [
     "Makefile",
 ]
 
-TEST_FILE_PATTERNS = ["test_*.py", "*_test.py", "*/test_*.py", "*/*_test.py"]
+
+def _always_run_patterns() -> List[str]:
+    patterns = list(ALWAYS_RUN_ALL)
+    for profile in adapters.profiles():
+        patterns.extend(profile.always_run_patterns)
+    return patterns
+
+
+def _test_file_patterns() -> List[str]:
+    patterns: List[str] = []
+    for profile in adapters.profiles():
+        patterns.extend(profile.test_file_patterns)
+    return patterns
+
+
+def _source_extensions() -> Tuple[str, ...]:
+    exts: List[str] = []
+    for profile in adapters.profiles():
+        exts.extend(profile.source_extensions)
+    return tuple(exts)
 
 # Files that cannot change a test outcome under any plausible configuration.
 # A test runner will not execute them, and code will not read them at runtime.
@@ -78,12 +85,18 @@ def _matches(path: str, patterns: Iterable[str]) -> bool:
 
 
 def is_test_file(path: str) -> bool:
-    return _matches(path, TEST_FILE_PATTERNS)
+    return _matches(path, _test_file_patterns())
 
 
 def _analysable(path: str) -> bool:
-    """Can this adapter reason about the file at all?"""
-    return path.endswith(".py")
+    """Can any registered adapter reason about this file line-by-line?
+
+    Anything else fails open. Note that answering True is not a promise the
+    file is understood -- a path with a known extension but no entry in the
+    map still forces a full run further down. Both answers are safe; this one
+    just decides which safety net catches it.
+    """
+    return path.endswith(_source_extensions())
 
 
 def is_benign(path: str, ignore_docs: bool = True) -> bool:
@@ -135,8 +148,9 @@ def select(
 
     # Always-run rules are checked against the ORIGINAL change set, before
     # anything is filtered out, so a benign pattern can never mask one.
+    always_run = _always_run_patterns()
     for path in changes.all_paths:
-        if _matches(path, ALWAYS_RUN_ALL):
+        if _matches(path, always_run):
             sel.run_all = True
             sel.reasons.append(f"{path} can affect any test (always-run rule)")
             return sel
