@@ -32,6 +32,27 @@ jobs:
       - run: pip install -e ".[dev]"
       - run: pytest -q
 
+  # The JS adapter's end-to-end tests skip unless Node and the fixture's
+  # dependencies are present. Without this job they would skip in CI forever
+  # and the cross-language claim would rest on nothing but a local run.
+  jest-adapter:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: tests/fixtures/jsproj/package-lock.json
+      - run: npm ci --prefix tests/fixtures/jsproj
+      - run: pip install -e ".[dev]"
+      # -rs surfaces skips: a silent skip here is the failure mode this job
+      # exists to prevent.
+      - run: pytest tests/test_jest_adapter.py tests/test_adapters.py -q -rs
+
   # Dogfooding: run sift on sift, with the map carried between runs by the
   # Actions cache. Shadow mode runs the FULL suite and only reports what it
   # would have skipped, so this job can never hide a failure from us.
