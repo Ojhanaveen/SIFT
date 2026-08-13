@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "sift-tests"
-version = "0.1.0"
+version = "0.2.0"
 description = "Run only the tests your diff actually affects."
 readme = "README.md"
 requires-python = ">=3.9"
