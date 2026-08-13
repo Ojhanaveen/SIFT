@@ -123,3 +123,47 @@ def test_shallow_clone_cannot_reach_an_older_map(repo, tmp_path):
 
     assert found is None and distance == -1
     assert store.stored_commits(shallow) == [base], "the map is right there"
+
+
+# -- sift must not edit the user's files -----------------------------------
+
+
+def test_saving_a_map_does_not_dirty_the_working_tree(repo):
+    """sift runs inside other people's repositories. Appending to .gitignore
+    put a modification in their diff they never asked for, and -- found while
+    replaying real history against upstream projects -- it blocked every
+    subsequent `git checkout` with "local changes would be overwritten"."""
+    before = subprocess.run(["git", "status", "--porcelain"], cwd=repo,
+                            capture_output=True, text=True).stdout
+
+    store.save(repo, a_map(head(str(repo))))
+
+    after = subprocess.run(["git", "status", "--porcelain"], cwd=repo,
+                           capture_output=True, text=True).stdout
+    assert after == before, "sift modified a tracked file"
+
+
+def test_the_map_directory_is_ignored_via_git_info_exclude(repo):
+    store.save(repo, a_map(head(str(repo))))
+
+    exclude = (repo / ".git" / "info" / "exclude").read_text()
+    assert f"/{store.SIFT_DIR}/" in exclude.split()
+
+    check = subprocess.run(
+        ["git", "status", "--porcelain", "--ignored=no"],
+        cwd=repo, capture_output=True, text=True,
+    )
+    assert store.SIFT_DIR not in check.stdout
+
+
+def test_ignoring_is_idempotent(repo):
+    for _ in range(3):
+        store.save(repo, a_map(head(str(repo))))
+    exclude = (repo / ".git" / "info" / "exclude").read_text()
+    assert exclude.split().count(f"/{store.SIFT_DIR}/") == 1
+
+
+def test_a_missing_git_dir_is_survivable(tmp_path):
+    """No .git at all: still write the map rather than crash."""
+    store.save(tmp_path, a_map("b" * 40))
+    assert store.stored_commits(tmp_path) == ["b" * 40]
