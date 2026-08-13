@@ -12,6 +12,12 @@ Most teams run their whole test suite on every commit, because they have no way
 to know which tests matter. sift records which test touches which line of code,
 then uses your diff to run only the tests that could possibly break.
 
+It is built on one rule: **being wrong is fatal, being slow is survivable.**
+Every ambiguity resolves toward running more tests. In practice that means sift
+runs your whole suite more often than a demo would suggest — see
+[what to actually expect](#what-to-actually-expect) for measured numbers before
+you decide it is worth adopting.
+
 > **Status: early.** Python (pytest) and JavaScript (Jest). The selection logic
 > is tested and conservative, but you should run it in `--shadow` mode (below)
 > before trusting it to skip anything.
@@ -40,6 +46,55 @@ Data files are **not** on that list — tests read `.json`, `.yaml`, `.csv` and
 runs doctests (`--doctest-modules` / `--doctest-glob`), sift detects it and
 stops treating documentation as safe, because then your markdown really is
 executable code.
+
+## What to actually expect
+
+Most tools like this show you their best case. Here is the measured one.
+
+We replayed **17 real commits** from two upstream Python projects — building the
+map at each commit's parent, checking the commit out, and running shadow mode.
+That is exactly the position a team is in when a pull request lands.
+
+| | Commits | Narrowed | Ran everything |
+|---|---|---|---|
+| `itsdangerous` (297 tests) | 12 | 1 | 11 |
+| `flask` (492 tests) | 5 | 2 | 3 |
+
+**sift ran the full suite for 14 of 17 commits.** That is not the number a
+launch post would pick, and it is the number you should plan around.
+
+The dominant cause is not tunable. In Python, `def` and `class` statements
+execute at **import** time — the line that creates the function object runs when
+the module loads, before any test starts. coverage.py attributes those lines to
+no test, so sift cannot know which tests care, and it runs everything:
+
+```python
+def unsign(                          # change this line -> full run
+class HMACAlgorithm(SigningAlgorithm):   # or this one   -> full run
+def loads(s: str | bytes) -> t.Any:      # or this one   -> full run
+```
+
+So **changing a function signature, a type annotation, or a class declaration
+costs you a full run.** Changing what's *inside* a function does not. Mature
+libraries do a great deal of the former, which is why `itsdangerous` saw almost
+no benefit.
+
+sift pays off when your changes are mostly to function bodies, and your suite is
+slow enough that skipping most of it is worth caring about. It pays off least on
+small, heavily-typed libraries with fast suites — where you did not need it
+anyway.
+
+### On "Missed failures: 0"
+
+Be careful how much you read into that line when replaying merged history.
+Merged commits are green by construction, so there are no failures available to
+miss and a clean report is close to guaranteed. It shows sift is not
+mis-selecting into an error; it does not prove sift would have caught a
+regression.
+
+The honest test is to **plant a bug and check sift still selects the test that
+catches it**. That is the bar in [CONTRIBUTING.md](CONTRIBUTING.md) for new
+adapters, and it is the one worth applying to your own repo.
 
 ## Try it without risk
 
