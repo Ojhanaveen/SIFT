@@ -27,6 +27,27 @@ ALWAYS_RUN_ALL = [
     "Makefile",
 ]
 
+# Paths that sit under an always-run glob but are still provably inert.
+#
+# `.github/**` is deliberately broad -- it catches workflow and action changes,
+# which can alter how every test runs. But it also swallows issue templates and
+# funding metadata, which no test runner reads. Those were already listed in
+# BENIGN_ALWAYS below and it made no difference: always-run is evaluated first,
+# so the entries were unreachable and an issue-template edit ran the full suite.
+#
+# This stays an explicit short list rather than "anything benign beats
+# always-run", so that a future careless addition to BENIGN_ALWAYS cannot
+# silently disable a safety rule. Each entry needs the same argument as
+# BENIGN_ALWAYS: no test can observe this change. (pytest's default
+# norecursedirs skips dotted directories, so even --doctest-glob='*.md' does
+# not collect files under .github/.)
+ALWAYS_RUN_EXCEPTIONS = [
+    ".github/ISSUE_TEMPLATE/*",
+    ".github/PULL_REQUEST_TEMPLATE*",
+    ".github/FUNDING.yml",
+    ".github/CODEOWNERS",
+]
+
 
 def _always_run_patterns() -> List[str]:
     patterns = list(ALWAYS_RUN_ALL)
@@ -65,6 +86,7 @@ BENIGN_ALWAYS = [
     ".github/ISSUE_TEMPLATE/*",
     ".github/PULL_REQUEST_TEMPLATE*",
     ".github/FUNDING.yml",
+    ".github/CODEOWNERS",
 ]
 
 # Documentation. Benign ONLY when the project does not run doctests -- with
@@ -150,6 +172,8 @@ def select(
     # anything is filtered out, so a benign pattern can never mask one.
     always_run = _always_run_patterns()
     for path in changes.all_paths:
+        if _matches(path, ALWAYS_RUN_EXCEPTIONS):
+            continue
         if _matches(path, always_run):
             sel.run_all = True
             sel.reasons.append(f"{path} can affect any test (always-run rule)")
