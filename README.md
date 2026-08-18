@@ -214,7 +214,7 @@ Line numbers are looked up on the **old side** of each diff hunk, since the map
 was built against the base commit. Using new-side numbers would read the wrong
 lines and select confidently wrong tests.
 
-## Known limitations (v0)
+## Known limitations
 
 - **Python and JavaScript (pytest, Jest).** Vitest, Go, Ruby, Rust and Java are
   open — see [CONTRIBUTING.md](CONTRIBUTING.md).
@@ -242,8 +242,9 @@ lines and select confidently wrong tests.
 
 ## Contributing
 
-Adding a language means implementing one small class with six methods. See
-[CONTRIBUTING.md](CONTRIBUTING.md) — Go, Ruby, Rust and JS/TS are all open.
+Adding a language means implementing one small class against a five-method
+contract, then registering it. See [CONTRIBUTING.md](CONTRIBUTING.md) — Go,
+Ruby, Rust, Java and Vitest are open.
 
 ## License
 
