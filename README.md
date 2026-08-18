@@ -51,16 +51,16 @@ executable code.
 
 Most tools like this show you their best case. Here is the measured one.
 
-We replayed **17 real commits** from two upstream Python projects — building the
+We replayed **18 real commits** from two upstream Python projects — building the
 map at each commit's parent, checking the commit out, and running shadow mode.
 That is exactly the position a team is in when a pull request lands.
 
 | | Commits | Narrowed | Ran everything |
 |---|---|---|---|
-| `itsdangerous` (297 tests) | 12 | 1 | 11 |
-| `flask` (492 tests) | 5 | 2 | 3 |
+| `itsdangerous` (297 tests) | 12 | 0 | 12 |
+| `flask` (492 tests) | 6 | 3 | 3 |
 
-**sift ran the full suite for 14 of 17 commits.** That is not the number a
+**sift ran the full suite for 15 of 18 commits.** That is not the number a
 launch post would pick, and it is the number you should plan around.
 
 The dominant cause is structural. In Python, `def` and `class` statements
@@ -75,8 +75,10 @@ def loads(s: str | bytes) -> t.Any:      # or this one      -> full run
 
 So **changing a function signature or a class declaration costs you a full
 run.** Changing what's *inside* a function does not. Mature libraries do a
-great deal of the former, which is why `itsdangerous` saw almost no benefit —
-these numbers predate the one narrow exception below.
+great deal of the former, which is why `itsdangerous` saw no benefit at all —
+these numbers already include the one narrow exception below; on this corpus
+every candidate signature edit also had a decorator, a renamed parameter, or
+wasn't actually a signature edit once inspected, so none qualified.
 
 sift pays off when your changes are mostly to function bodies, and your suite is
 slow enough that skipping most of it is worth caring about. It pays off least on
