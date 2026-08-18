@@ -11,7 +11,7 @@ from typing import List, Optional
 from . import adapters, store
 from .adapters.base import Adapter
 from .config import doctests_enabled
-from .gitdiff import GitError, collect, head, is_dirty, is_shallow
+from .gitdiff import GitError, collect, head, is_dirty, is_shallow, show
 from .model import Selection
 from .select import select
 
@@ -27,6 +27,24 @@ def _root() -> Path:
 def _adapter(root: Path, extra: List[str]) -> Optional[Adapter]:
     """The registered adapter that recognises this repo, if any."""
     return adapters.detect(root, extra)
+
+
+def _source_readers(root: Path, base_commit: str):
+    """Old-side and new-side content readers for select()'s annotation
+    exemption. New-side reads the working tree, not HEAD, matching the rest
+    of sift: `sift run` diffs base..working-tree, uncommitted changes and
+    all."""
+
+    def old_content(path: str) -> Optional[str]:
+        return show(base_commit, path, cwd=str(root))
+
+    def new_content(path: str) -> Optional[str]:
+        try:
+            return (root / path).read_text()
+        except (OSError, UnicodeDecodeError):
+            return None
+
+    return old_content, new_content
 
 
 def _fmt_secs(s: float) -> str:
@@ -124,7 +142,9 @@ def cmd_run(args: argparse.Namespace) -> int:
         print(f"{DIM}(working tree has uncommitted changes; they are included){RESET}")
 
     changes = collect(tmap.commit, cwd=str(root))
-    sel = select(changes, tmap, ignore_docs=not doctests_enabled(root))
+    old_content, new_content = _source_readers(root, tmap.commit)
+    sel = select(changes, tmap, ignore_docs=not doctests_enabled(root),
+                old_content=old_content, new_content=new_content)
     total = len(tmap.tests)
 
     print(f"{DIM}map from {tmap.commit[:8]} ({distance} commit(s) back), "
@@ -219,7 +239,9 @@ def cmd_explain(args: argparse.Namespace) -> int:
         print("no map stored — run `sift run --all`")
         return 1
     changes = collect(tmap.commit, cwd=str(root))
-    sel = select(changes, tmap, ignore_docs=not doctests_enabled(root))
+    old_content, new_content = _source_readers(root, tmap.commit)
+    sel = select(changes, tmap, ignore_docs=not doctests_enabled(root),
+                old_content=old_content, new_content=new_content)
 
     target = args.test
     if sel.run_all:

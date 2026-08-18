@@ -8,11 +8,17 @@ make a rule narrower to squeeze out more speed, don't.
 from __future__ import annotations
 
 import fnmatch
-from typing import Iterable, List, Optional, Set, Tuple
+from typing import Callable, Iterable, List, Optional, Set, Tuple
 
-from . import adapters
+from . import adapters, annotate
 from .gitdiff import Changes
 from .model import Selection, CoverageMap
+
+# path -> file content, or None if unreadable. Two of these (old-side,
+# new-side) let select() consult annotate.exempt_body_range() without
+# knowing anything about git itself -- cli.py supplies the real
+# implementation; tests supply canned content.
+SourceReader = Callable[[str], Optional[str]]
 
 # A change to any of these can affect anything, in ways coverage cannot see.
 # Only genuinely language-agnostic entries belong here -- the environment the
@@ -131,6 +137,7 @@ def is_benign(path: str, ignore_docs: bool = True) -> bool:
 def _strip_benign(changes: Changes, ignore_docs: bool) -> Tuple[Changes, List[str]]:
     """Drop benign paths so they don't trip the fail-open gates."""
     kept = Changes()
+    kept.line_pairs = changes.line_pairs  # carried through, not rebuilt
     dropped: List[str] = []
 
     for path, lines in changes.modified.items():
@@ -149,11 +156,40 @@ def _strip_benign(changes: Changes, ignore_docs: bool) -> Tuple[Changes, List[st
     return kept, dropped
 
 
+def _annotation_exemption(
+    path: str,
+    lineno: int,
+    changes: Changes,
+    old_content: Optional[SourceReader],
+    new_content: Optional[SourceReader],
+    src: Callable[[str, str], Optional[str]],
+) -> Optional[Tuple[int, int]]:
+    """Old-side body range to select from instead of failing open, or None.
+
+    Requires exact certainty about which new-side line corresponds to this
+    old-side line -- only present for hunks that replace one line with one
+    line (see Changes.line_pairs). Any other shape means "don't know" and
+    this returns None, which is the same as not having the exemption at all.
+    """
+    if old_content is None or new_content is None:
+        return None
+    new_lineno = changes.line_pairs.get(path, {}).get(lineno)
+    if new_lineno is None:
+        return None
+    old_src = src(path, "old")
+    new_src = src(path, "new")
+    if old_src is None or new_src is None:
+        return None
+    return annotate.exempt_body_range(old_src, new_src, lineno, new_lineno)
+
+
 def select(
     changes: Changes,
     tmap: Optional[CoverageMap],
     all_tests: Optional[List[str]] = None,
     ignore_docs: bool = True,
+    old_content: Optional[SourceReader] = None,
+    new_content: Optional[SourceReader] = None,
 ) -> Selection:
     sel = Selection(tests=[], run_all=False)
 
@@ -212,6 +248,17 @@ def select(
     # ---- per-file selection ---------------------------------------------
 
     picked: Set[str] = set()
+    # Lazily fetched and cached per path -- only paid for files that actually
+    # hit a module-level line, and only once per file even if several of its
+    # lines do.
+    src_cache: dict = {}
+
+    def _src(path: str, side: str) -> Optional[str]:
+        key = (path, side)
+        if key not in src_cache:
+            reader = old_content if side == "old" else new_content
+            src_cache[key] = reader(path) if reader else None
+        return src_cache[key]
 
     for path, lines in changes.modified.items():
         if is_test_file(path):
@@ -231,13 +278,31 @@ def select(
         for lineno in sorted(lines):
             # Module-level code (imports, decorators, class bodies) runs at
             # import time and belongs to no single test. A change there can
-            # affect every test that imports the module, so fail open.
+            # affect every test that imports the module, so fail open --
+            # UNLESS this exact edit qualifies for the one narrow exemption
+            # in annotate.py: a single-line, undecorated function signature
+            # that changed only its type annotation. See annotate.py for the
+            # full safety argument and its stated residual risk.
             if tmap.is_module_level(path, lineno):
-                sel.run_all = True
-                sel.reasons.append(
-                    f"{path}:{lineno} runs at import time, not inside a test"
+                body_range = _annotation_exemption(
+                    path, lineno, changes, old_content, new_content, _src
                 )
-                return sel
+                if body_range is None:
+                    sel.run_all = True
+                    sel.reasons.append(
+                        f"{path}:{lineno} runs at import time, not inside a test"
+                    )
+                    return sel
+                start, end = body_range
+                for body_line in range(start, end + 1):
+                    for test in tmap.tests_for(path, body_line):
+                        picked.add(test)
+                        sel.add(
+                            test,
+                            f"{path}:{lineno} signature changed only its type "
+                            f"annotation; selected via its body",
+                        )
+                continue
 
             for test in tmap.tests_for(path, lineno):
                 picked.add(test)
