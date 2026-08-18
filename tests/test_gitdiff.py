@@ -83,3 +83,70 @@ def test_no_changes(repo):
     base = head(str(repo))
     changes = collect(base, cwd=str(repo))
     assert changes.is_empty()
+
+
+# -- line_pairs: the exact-correspondence signal for annotate.py -----------
+
+
+def test_a_single_line_replacement_records_the_line_pair(repo):
+    base = head(str(repo))
+    (repo / "a.py").write_text("l1\nCHANGED\nl3\nl4\nl5\n")
+    changes = collect(base, cwd=str(repo))
+    assert changes.line_pairs["a.py"] == {2: 2}
+
+
+def test_a_line_replacement_at_a_different_offset_maps_correctly(repo):
+    """Insert lines well above the edit (a separate hunk) so old line 4
+    becomes new line 6 -- the pair must reflect the shift, not assume line
+    numbers are stable across the whole file."""
+    base = head(str(repo))
+    (repo / "a.py").write_text("l1\nEXTRA-A\nEXTRA-B\nl2\nl3\nCHANGED\nl5\n")
+    changes = collect(base, cwd=str(repo))
+    assert changes.line_pairs["a.py"] == {4: 6}
+
+
+def test_a_pure_insertion_records_no_line_pair(repo):
+    base = head(str(repo))
+    (repo / "a.py").write_text("l1\nl2\nINSERTED\nl3\nl4\nl5\n")
+    changes = collect(base, cwd=str(repo))
+    assert changes.line_pairs.get("a.py", {}) == {}
+
+
+def test_a_multi_line_replacement_records_no_line_pair(repo):
+    """Two-for-two (or any shape other than 1-for-1) is ambiguous about which
+    old line became which new line -- must not guess."""
+    base = head(str(repo))
+    (repo / "a.py").write_text("l1\nCHANGED-A\nCHANGED-B\nl4\nl5\n")
+    changes = collect(base, cwd=str(repo))
+    assert changes.line_pairs.get("a.py", {}) == {}
+
+
+def test_a_pure_deletion_records_no_line_pair(repo):
+    base = head(str(repo))
+    (repo / "a.py").write_text("l1\nl3\nl4\nl5\n")
+    changes = collect(base, cwd=str(repo))
+    assert changes.line_pairs.get("a.py", {}) == {}
+
+
+# -- show(): reading a file's content at a commit ---------------------------
+
+
+def test_show_reads_a_file_at_a_commit(repo):
+    from sift.gitdiff import show
+    base = head(str(repo))
+    (repo / "a.py").write_text("changed\n")
+    git(repo, "add", "-A")
+    git(repo, "commit", "-qm", "change it")
+
+    assert show(base, "a.py", cwd=str(repo)) == "l1\nl2\nl3\nl4\nl5\n"
+
+
+def test_show_returns_none_for_a_path_absent_at_that_commit(repo):
+    from sift.gitdiff import show
+    base = head(str(repo))
+    assert show(base, "never-existed.py", cwd=str(repo)) is None
+
+
+def test_show_returns_none_for_an_unknown_commit(repo):
+    from sift.gitdiff import show
+    assert show("0" * 40, "a.py", cwd=str(repo)) is None

@@ -49,6 +49,26 @@ def is_dirty(cwd: Optional[str] = None) -> bool:
     return bool(_git("status", "--porcelain", cwd=cwd).strip())
 
 
+def show(commit: str, path: str, cwd: Optional[str] = None) -> Optional[str]:
+    """A file's content at a commit, or None if it can't be read.
+
+    None covers everything that can go wrong -- binary files, a path that
+    didn't exist at that commit, encoding failures -- because every caller of
+    this treats "can't read it" as "don't know" and falls back to the safe
+    default, never as an error to propagate.
+    """
+    try:
+        proc = subprocess.run(
+            ["git", "show", f"{commit}:{path}"],
+            cwd=cwd, capture_output=True, text=True,
+        )
+    except OSError:
+        return None
+    if proc.returncode != 0:
+        return None
+    return proc.stdout
+
+
 def is_shallow(cwd: Optional[str] = None) -> bool:
     """True if this clone has a truncated history.
 
@@ -100,6 +120,14 @@ class Changes:
     added: List[str] = field(default_factory=list)
     deleted: List[str] = field(default_factory=list)
     renamed: List[str] = field(default_factory=list)
+    # path -> {old_lineno: new_lineno}, populated ONLY for hunks that replace
+    # exactly one line with exactly one line. That shape is unambiguous: the
+    # old line became the new line, with nothing inserted or removed around
+    # it. Any messier hunk (multi-line signatures, lines added/removed nearby)
+    # is deliberately left out here rather than guessed at -- callers that
+    # need certainty about old<->new correspondence use this map and treat
+    # its absence as "don't know", not "assume line numbers still match".
+    line_pairs: Dict[str, Dict[int, int]] = field(default_factory=dict)
 
     @property
     def all_paths(self) -> List[str]:
@@ -158,8 +186,12 @@ def collect(base: str, cwd: Optional[str] = None) -> Changes:
 
         old_start = int(m.group(1))
         old_count = int(m.group(2)) if m.group(2) is not None else 1
+        new_start = int(m.group(3))
+        new_count = int(m.group(4)) if m.group(4) is not None else 1
 
         touched = changes.modified.setdefault(current, set())
+        if old_count == 1 and new_count == 1:
+            changes.line_pairs.setdefault(current, {})[old_start] = new_start
         if old_count == 0:
             # Pure insertion: there is no old line to look up. The insertion
             # point sits between old_start and old_start+1, so we treat both
