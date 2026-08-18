@@ -63,26 +63,34 @@ That is exactly the position a team is in when a pull request lands.
 **sift ran the full suite for 14 of 17 commits.** That is not the number a
 launch post would pick, and it is the number you should plan around.
 
-The dominant cause is not tunable. In Python, `def` and `class` statements
+The dominant cause is structural. In Python, `def` and `class` statements
 execute at **import** time — the line that creates the function object runs when
 the module loads, before any test starts. coverage.py attributes those lines to
 no test, so sift cannot know which tests care, and it runs everything:
 
 ```python
-def unsign(                          # change this line -> full run
-class HMACAlgorithm(SigningAlgorithm):   # or this one   -> full run
-def loads(s: str | bytes) -> t.Any:      # or this one   -> full run
+class HMACAlgorithm(SigningAlgorithm):   # change this line -> full run
+def loads(s: str | bytes) -> t.Any:      # or this one      -> full run
 ```
 
-So **changing a function signature, a type annotation, or a class declaration
-costs you a full run.** Changing what's *inside* a function does not. Mature
-libraries do a great deal of the former, which is why `itsdangerous` saw almost
-no benefit.
+So **changing a function signature or a class declaration costs you a full
+run.** Changing what's *inside* a function does not. Mature libraries do a
+great deal of the former, which is why `itsdangerous` saw almost no benefit —
+these numbers predate the one narrow exception below.
 
 sift pays off when your changes are mostly to function bodies, and your suite is
 slow enough that skipping most of it is worth caring about. It pays off least on
 small, heavily-typed libraries with fast suites — where you did not need it
 anyway.
+
+**One narrow exception:** a single-line function signature that changes *only*
+its type annotations — under `from __future__ import annotations`, no
+decorators, nothing else about the signature different — no longer forces a
+full run; sift selects whatever already covers the function body instead.
+That covers the common case of widening or tightening a type hint. It does
+not cover class declarations, multi-line signatures, or anything decorated
+(route registration, validators, DI). See the limitations below for what this
+still can't rule out.
 
 ### On "Missed failures: 0"
 
@@ -221,6 +229,14 @@ lines and select confidently wrong tests.
   file — data, config, templates — fails open.
 - **Non-code dependencies are invisible.** If a test reads a fixture JSON file,
   changing that file won't select it. Keep such files under an always-run rule.
+- **The annotation-only exemption is a static check, not a proof about
+  everything Python can do.** It looks at structure — decorators, argument
+  shape, whether `from __future__ import annotations` is present — not at
+  runtime behavior. Code that reflects on an *undecorated* function's
+  `__annotations__` or via `typing.get_type_hints()` and behaves differently
+  based on what it finds is a real, if unusual, way for this to be wrong. This
+  is why the exemption is scoped as narrowly as it is — see
+  `src/sift/annotate.py` for the full argument.
 - Insertions select the lines either side of the insertion point, which
   over-selects slightly. Deliberate.
 
